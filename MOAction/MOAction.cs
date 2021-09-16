@@ -80,6 +80,36 @@ namespace MOAction
         private unsafe ActionManager* AM;
         private readonly int IdOffset = (int)Marshal.OffsetOf<FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject>("ObjectID");
 
+        private delegate void MouseToWorldDelegate(long a1, uint spellid, uint unk1, long result);
+        private MouseToWorldDelegate locationCheck;
+        private IntPtr _doActionLocationFunc;
+        private IntPtr _mouseToWorldFunc;
+        private IntPtr _actionReadyFunc;
+        private IntPtr _Arg1;
+
+        public enum SkillStatus : int
+        {
+            CDing = 582,
+
+            Casting = 580,
+
+            OnMount = 579,
+
+            NeedTarget = 572,
+
+            NoTargetNeed = 0
+        }
+        private delegate SkillStatus GetActionStatus(long a1, uint actionType, uint actionID,
+            uint targetID = 0xE000_0000,
+            uint a4 = 1, uint a5 = 1);
+
+        private GetActionStatus getActionStatus;
+        private IntPtr _getActionStatusPtr;
+        
+        private delegate long sub_140802350(long a1, uint actionType, uint actionId);
+        private sub_140802350 ActionReady;
+        private Vector3 queuePos;
+
         public MOAction(SigScanner scanner, ClientState clientstate,
                         DataManager datamanager, TargetManager targetmanager, ObjectTable objects, KeyState keystate, GameGui gamegui
                         )
@@ -109,6 +139,23 @@ namespace MOAction
             RALDelegate = Marshal.GetDelegateForFunctionPointer<RequestActionLocationDelegate>(Address.RequestActionLocation);
             PostRequestResolver = Marshal.GetDelegateForFunctionPointer<PostRequest>(Address.PostRequest);
             thing = scanner.Module.BaseAddress + 0x1d8e490;
+
+            #region snow
+
+            
+           
+            _mouseToWorldFunc = scanner.ScanText("E8 ?? ?? ?? ?? 41 B6 01 44 38 74 24 ??");
+            _Arg1 = scanner.GetStaticAddressFromSig("48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 8B F8 8B CF");
+            _doActionLocationFunc = scanner.ScanText("E8 ?? ?? ?? ?? 3C 01 0F 85 ?? ?? ?? ?? EB 46 ");
+            _actionReadyFunc = scanner.ScanText("E8 ?? ?? ?? ?? 3C 01 74 45");
+            _getActionStatusPtr = scanner.ScanText("E8 ?? ?? ?? ?? 83 BC 24 ?? ?? ?? ?? ?? 8B F0");
+
+            locationCheck = Marshal.GetDelegateForFunctionPointer<MouseToWorldDelegate>(_mouseToWorldFunc);
+            
+            ActionReady = Marshal.GetDelegateForFunctionPointer<sub_140802350>(_actionReadyFunc);
+            getActionStatus = Marshal.GetDelegateForFunctionPointer<GetActionStatus>(_getActionStatusPtr);
+
+            #endregion
 
             Stacks = new();
 
@@ -176,43 +223,77 @@ namespace MOAction
             return reqlochook.Original(actionMgr, type, id, targetId, ref location, zero);
         }
 
-        private bool HandleRequestAction(long param_1, uint param_2, ulong param_3, long param_4,
+        private bool HandleRequestAction(long actionMgr, uint actionType, ulong actionId, long targetId,
                        uint param_5, uint param_6, int param_7)
         {
-            var (action, target) = GetActionTarget((uint)param_3, param_2);
+            var (action, target) = GetActionTarget((uint)actionId, actionType);
             void EnqueueGroundTarget()
             {
-                IntPtr self = (IntPtr)param_1;
+                IntPtr self = (IntPtr)actionMgr;
 
                 Marshal.WriteInt32(self + 128, (int)param_6);
                 Marshal.WriteInt32(self + 132, (int)param_7);
                 Marshal.WriteByte(self + 104, 1);
-                Marshal.WriteInt32(self + 108, (int)param_2);
+                Marshal.WriteInt32(self + 108, (int)actionType);
                 Marshal.WriteInt32(self + 112, (int)action.RowId);
-                Marshal.WriteInt64(self + 120, param_4);
+                Marshal.WriteInt64(self + 120, targetId);
+                PluginLog.Log(Marshal.ReadInt32(self + 112).ToString()) ;
             }
-            
-            if (action == null) return requestActionHook.Original(param_1, param_2, param_3, param_4, param_5, param_6, param_7);
+            if (action == null) return requestActionHook.Original(actionMgr, actionType, actionId, targetId, param_5, param_6, param_7);
+#if DEBUG
+            PluginLog.Log($"{actionId}+{targetId:X}+{param_5}+{param_6}") ;
+#endif
             if (action.Name == "Earthly Star" && clientState.LocalPlayer.StatusList.Any(x => x.StatusId == 1248 || x.StatusId == 1224))
-                return requestActionHook.Original(param_1, param_2, param_3, param_4, param_5, param_6, param_7);
+                return requestActionHook.Original(actionMgr, actionType, actionId, targetId, param_5, param_6, param_7);
+
             // Ground target "at my cursor"
             if (action != null && target == null)
             {
-                Vector3 pos;
-                var mousePos = gameGui.ScreenToWorld(ImGui.GetMousePos(), out pos);
-                if (Configuration.MouseClamp)
+                MouseToWorld((uint)actionId, out var mouseOnWorld, out var success, out var pos);
+                var actionReady = ActionReady(actionMgr, 1, (uint)actionId);
+                var status = getActionStatus(actionMgr, 1, (uint)actionId);
+
+                //PluginLog.Log($"{success} {actionReady} {status}");
+                bool returnval;
+                if (param_6 == 1 && queuePos != Vector3.Zero)
                 {
-                    var playerpos = clientState.LocalPlayer.Position;
-                    var distance = Vector3.Distance(playerpos, pos);
-                    if (distance > action.Range + 1)
-                    {
-                        pos = GetClampedGroundCoords(playerpos, pos, action.Range+1);
-                    }
-                     
+                    returnval = RALDelegate((IntPtr)actionMgr, actionType, action.RowId, (uint)targetId, ref queuePos, 0);
+                    queuePos = Vector3.Zero;
+                    return returnval;
                 }
-                EnqueueGroundTarget();
-                bool returnval = RALDelegate((IntPtr)param_1, param_2, action.RowId, (uint)param_4, ref pos, 0);
-                return returnval;
+
+                if (success)
+                {
+                    if (action.IsPlayerAction)
+                    {
+                        if (actionReady != 0 || status == SkillStatus.Casting)
+                        {
+                            EnqueueGroundTarget();
+                            queuePos = pos;
+                            return false;
+                        }
+                    }
+                    else if (actionReady == 0 && status == SkillStatus.NoTargetNeed)
+                    {
+                        returnval = RALDelegate((IntPtr)actionMgr, actionType, action.RowId, (uint)targetId,
+                            ref pos,
+                            0);
+                        return returnval;
+                    }
+                    
+                }
+
+                //if (Configuration.MouseClamp)
+                //{
+                //    var playerpos = clientState.LocalPlayer.Position;
+                //    var distance = Vector3.Distance(playerpos, pos);
+                //    if (distance > action.Range + 1)
+                //    {
+                //        pos = GetClampedGroundCoords(playerpos, pos, action.Range+1);
+                //    }
+                     
+                //}
+                //EnqueueGroundTarget();
 
             }
 
@@ -222,23 +303,35 @@ namespace MOAction
                 if (action.CastType == 7) {
 
                     var targpos = target.Position;
-                    if (Configuration.OtherGroundClamp)
-                    {
-                        var playerpos = clientState.LocalPlayer.Position;
-                        var distance = Vector3.Distance(playerpos, targpos);
-                        if (distance > action.Range + 1)
-                        {
-                            targpos = GetClampedGroundCoords(playerpos, targpos, action.Range + 1);
-                        }
-                    }
+                    //if (Configuration.OtherGroundClamp)
+                    //{
+                    //    var playerpos = clientState.LocalPlayer.Position;
+                    //    var distance = Vector3.Distance(playerpos, targpos);
+                    //    if (distance > action.Range + 1)
+                    //    {
+                    //        targpos = GetClampedGroundCoords(playerpos, targpos, action.Range + 1);
+                    //    }
+                    //}
                     EnqueueGroundTarget();
-                    bool returnval = RALDelegate((IntPtr)param_1, param_2, action.RowId, (uint)param_4, ref targpos, 0);
+                    bool returnval = RALDelegate((IntPtr)actionMgr, actionType, action.RowId, (uint)targetId, ref targpos, 0);
                     return returnval;
                 }
-                return requestActionHook.Original(param_1, param_2, action.RowId, target.ObjectId, param_5, param_6, param_7);
+                return requestActionHook.Original(actionMgr, actionType, action.RowId, target.ObjectId, param_5, param_6, param_7);
             }
-            return requestActionHook.Original(param_1, param_2, param_3, param_4, param_5, param_6, param_7);
+            return requestActionHook.Original(actionMgr, actionType, actionId, targetId, param_5, param_6, param_7);
         }
+
+        private unsafe void MouseToWorld(uint spellId, out bool mouseOnWorld, out bool success, out Vector3 worldPos)
+        {
+            var s = stackalloc byte[0x40];
+            locationCheck((long)_Arg1, spellId, 1, (long)s);
+            mouseOnWorld = s[0] == 1;
+            success = s[1] == 1;
+            worldPos = *(Vector3*)(s + 0x10);
+        }
+
+        
+
 
         private Vector3 GetClampedGroundCoords(Vector3 self, Vector3 dest, int range)
         {
@@ -255,6 +348,7 @@ namespace MOAction
             var action = RawActions.FirstOrDefault(x => x.RowId == ActionID);
             if (action == default) return (null, null);
             //var action = RawActions.First(x => x.RowId == ActionID);
+            if (action.TargetArea && !action.IsPlayerAction) return (action,null);
             var applicableActions = Stacks.Where(entry => entry.BaseAction == action);
             MoActionStack stackToUse = null;
             foreach (var entry in applicableActions)

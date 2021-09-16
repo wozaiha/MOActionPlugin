@@ -20,6 +20,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using Dalamud.Game.Gui;
 using System.Text.Json;
 using System.Text;
+using Lumina.Excel.GeneratedSheets;
 using Newtonsoft.Json;
 
 namespace MOAction
@@ -67,7 +68,6 @@ namespace MOAction
         private KeyState KeyState;
         //private FFXIVClientStructs.Attributes.Addon addon;
 
-        private bool testo; 
 
         unsafe public MOActionPlugin(DalamudPluginInterface pluginInterface,  CommandManager commands,  DataManager datamanager, GameGui gamegui, KeyState keystate, ObjectTable objects, SigScanner scanner, ClientState clientstate, TargetManager targetmanager)
         {
@@ -87,10 +87,21 @@ namespace MOAction
             SigScanner = scanner;
             KeyState = keystate;
 
+            for (var i =0;i < soloJobNames.Length;i++)
+            {
+                var classjob = dataManager.GetExcelSheet<ClassJob>()
+                    .FirstOrDefault(x => x.Abbreviation == soloJobNames[i]);
+                if (classjob == default) continue;
+                soloJobNames[i] = classjob.Name;
+            }
+            Array.Sort(soloJobNames);
+
             NewStacks = new();
             SavedStacks = new();
-            foreach (var a in dataManager.GetExcelSheet<Lumina.Excel.GeneratedSheets.Action>().Where(row => row.IsPlayerAction && !row.IsPvP).ToList())
+            foreach (var a in dataManager.GetExcelSheet<Lumina.Excel.GeneratedSheets.Action>().Where(row => (row.IsPlayerAction && !row.IsPvP) || (row.TargetArea && row.ClassJob?.Row == 0 && !row.IsPvP )).ToList())
             {
+                // 不处理魔纹步
+                if (a.RowId == 7419) continue;
                 // compatability with xivcombo, enochian turns into f/b4
                 if (a.RowId == 3575)
                     a.CanTargetHostile = true;
@@ -98,7 +109,7 @@ namespace MOAction
                 else if (a.RowId == 3573 || a.RowId == 7385)
                     a.CastType = 1;
                 // Other ground targets have to be able to target anything
-                else if (GroundTargets.Contains(a.RowId)) {
+                else if (a.TargetArea && a.RowId!= 7419 && a.RowId != 3573) {
                     a.CanTargetDead = true;
                     a.CanTargetFriendly = true;
                     a.CanTargetHostile = true;
@@ -230,19 +241,19 @@ namespace MOAction
                         }
                         ImGui.EndCombo();
                     }
-                    ImGui.SameLine();
-                    ImGui.SetNextItemWidth(100);
-                    if (ImGui.BeginCombo("Held Modifier Key", entry.Modifier.ToString()))
-                    {
-                        foreach (VirtualKey vk in MoActionStack.AllKeys)
-                        {
-                            if (ImGui.Selectable(vk.ToString()))
-                            {
-                                entry.Modifier = vk;
-                            }
-                        }
-                        ImGui.EndCombo();
-                    }
+                    //ImGui.SameLine();
+                    //ImGui.SetNextItemWidth(100);
+                    //if (ImGui.BeginCombo("Held Modifier Key", entry.Modifier.ToString()))
+                    //{
+                    //    foreach (VirtualKey vk in MoActionStack.AllKeys)
+                    //    {
+                    //        if (ImGui.Selectable(vk.ToString()))
+                    //        {
+                    //            entry.Modifier = vk;
+                    //        }
+                    //    }
+                    //    ImGui.EndCombo();
+                    //}
                     if (entry.Job != "Unset Job")
                     {
                         // ImGui.PushID(entry.Job);
@@ -414,7 +425,7 @@ namespace MOAction
         
         private void DrawConfig()
         {
-            ImGui.SetNextWindowSize(new Vector2(800, 800), ImGuiCond.Once);
+            ImGui.SetNextWindowSize(new Vector2(800, 760), ImGuiCond.Once);
             ImGui.Begin("Action stack setup", ref isImguiMoSetupOpen,
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar);
             ImGui.Text("This window allows you to set up your action stacks.");
@@ -430,8 +441,8 @@ namespace MOAction
             }
             
             ImGui.Checkbox("Stack entry fails if target is out of range.", ref rangeCheck);
-            ImGui.Checkbox("Clamp Ground Target at mouse to max ability range.", ref mouseClamp);
-            ImGui.Checkbox("Clamp other Ground Target to max ability range.", ref otherGroundClamp);
+            //ImGui.Checkbox("Clamp Ground Target at mouse to max ability range.", ref mouseClamp);
+            //ImGui.Checkbox("Clamp other Ground Target to max ability range.", ref otherGroundClamp);
             if (ImGui.Button("Copy all stacks to clipboard"))
             {
                 CopyToClipboard(moAction.Stacks);
