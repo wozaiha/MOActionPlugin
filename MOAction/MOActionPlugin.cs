@@ -47,7 +47,7 @@ namespace MOAction
     
         private bool firstTimeUpgrade = false;
         private bool rangeCheck;
-        private bool mouseClamp;
+        private bool nonPlayer;
         private bool otherGroundClamp;
 
         private readonly string[] soloJobNames = { "AST", "WHM", "SCH", "SMN", "BLM", "RDM", "BLU", "BRD", "MCH", "DNC", "DRK", "GNB", "WAR", "PLD", "DRG", "MNK", "SAM", "NIN" };
@@ -172,7 +172,7 @@ namespace MOAction
                 SavedStacks = SortStacks(tmpstacks);
             }
             rangeCheck = Configuration.RangeCheck;
-            mouseClamp = Configuration.MouseClamp;
+            nonPlayer = Configuration.NonPlayer;
             otherGroundClamp = Configuration.OtherGroundClamp;
 
             moAction.SetConfig(Configuration);
@@ -297,6 +297,7 @@ namespace MOAction
                                 {
                                     foreach (var target in TargetTypes)
                                     {
+                                        if (stackEntry.Action.CastType == 7) break;
                                         if (ImGui.Selectable(target.TargetName))
                                         {
                                             stackEntry.Target = target;
@@ -425,7 +426,7 @@ namespace MOAction
         
         private void DrawConfig()
         {
-            ImGui.SetNextWindowSize(new Vector2(800, 760), ImGuiCond.Once);
+            ImGui.SetNextWindowSize(new Vector2(800, 800), ImGuiCond.Once);
             ImGui.Begin("Action stack setup", ref isImguiMoSetupOpen,
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar);
             ImGui.Text("This window allows you to set up your action stacks.");
@@ -441,6 +442,8 @@ namespace MOAction
             }
             
             ImGui.Checkbox("Stack entry fails if target is out of range.", ref rangeCheck);
+            ImGui.Checkbox("Use Ground Target function for non-player actions.", ref nonPlayer);
+
             //ImGui.Checkbox("Clamp Ground Target at mouse to max ability range.", ref mouseClamp);
             //ImGui.Checkbox("Clamp other Ground Target to max ability range.", ref otherGroundClamp);
             if (ImGui.Button("Copy all stacks to clipboard"))
@@ -465,7 +468,7 @@ namespace MOAction
                     ImGui.EndPopup();
                 }
             }
-            ImGui.BeginChild("scrolling", new Vector2(0, ImGui.GetWindowSize().Y - 250), true, ImGuiWindowFlags.NoScrollbar);
+            ImGui.BeginChild("scrolling", new Vector2(0, ImGui.GetWindowSize().Y - 200), true, ImGuiWindowFlags.NoScrollbar);
             ImGui.PushID("Sorted Stacks");
 
             // sorted stacks are grouped by job.
@@ -828,7 +831,7 @@ namespace MOAction
         {
             Configuration.Version = CURRENT_CONFIG_VERSION;
             Configuration.RangeCheck = rangeCheck;
-            Configuration.MouseClamp = mouseClamp;
+            Configuration.NonPlayer = nonPlayer;
             Configuration.OtherGroundClamp = otherGroundClamp;
 
             pluginInterface.SavePluginConfig(Configuration);

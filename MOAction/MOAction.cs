@@ -264,7 +264,7 @@ namespace MOAction
 
                 if (success)
                 {
-                    if (action.IsPlayerAction)
+                    if (action.IsPlayerAction || Configuration.NonPlayer)
                     {
                         if (actionReady != 0 || status == SkillStatus.Casting)
                         {
@@ -273,7 +273,7 @@ namespace MOAction
                             return false;
                         }
                     }
-                    else if (actionReady == 0 && status == SkillStatus.NoTargetNeed)
+                    if (actionReady == 0 && status == SkillStatus.NoTargetNeed && (action.IsPlayerAction || Configuration.NonPlayer))
                     {
                         returnval = RALDelegate((IntPtr)actionMgr, actionType, action.RowId, (uint)targetId,
                             ref pos,
@@ -283,7 +283,7 @@ namespace MOAction
                     
                 }
 
-                //if (Configuration.MouseClamp)
+                //if (Configuration.NonPlayer)
                 //{
                 //    var playerpos = clientState.LocalPlayer.Position;
                 //    var distance = Vector3.Distance(playerpos, pos);
@@ -299,23 +299,6 @@ namespace MOAction
 
             if (action != null && target != null)
             {
-                // ground target at non-mouse
-                if (action.CastType == 7) {
-
-                    var targpos = target.Position;
-                    //if (Configuration.OtherGroundClamp)
-                    //{
-                    //    var playerpos = clientState.LocalPlayer.Position;
-                    //    var distance = Vector3.Distance(playerpos, targpos);
-                    //    if (distance > action.Range + 1)
-                    //    {
-                    //        targpos = GetClampedGroundCoords(playerpos, targpos, action.Range + 1);
-                    //    }
-                    //}
-                    EnqueueGroundTarget();
-                    bool returnval = RALDelegate((IntPtr)actionMgr, actionType, action.RowId, (uint)targetId, ref targpos, 0);
-                    return returnval;
-                }
                 return requestActionHook.Original(actionMgr, actionType, action.RowId, target.ObjectId, param_5, param_6, param_7);
             }
             return requestActionHook.Original(actionMgr, actionType, actionId, targetId, param_5, param_6, param_7);

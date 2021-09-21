@@ -17,14 +17,14 @@ namespace MOAction
         int IPluginConfiguration.Version { get; set; }
 
         public bool RangeCheck { get; set; }
-        public bool MouseClamp { get; set; }
+        public bool NonPlayer { get; set; }
         public bool OtherGroundClamp { get; set; }
 
         public MOActionConfiguration()
         {
             Stacks = new();
             RangeCheck = false;
-            MouseClamp = false;
+            NonPlayer = false;
             OtherGroundClamp = false;
         }
 
