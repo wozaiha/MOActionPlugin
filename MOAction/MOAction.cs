@@ -299,6 +299,7 @@ namespace MOAction
 
             if (action != null && target != null)
             {
+                PluginLog.Information(target.Name+" "+target.ObjectId); 
                 return requestActionHook.Original(actionMgr, actionType, action.RowId, target.ObjectId, param_5, param_6, param_7);
             }
             return requestActionHook.Original(actionMgr, actionType, actionId, targetId, param_5, param_6, param_7);
@@ -331,7 +332,7 @@ namespace MOAction
             var action = RawActions.FirstOrDefault(x => x.RowId == ActionID);
             if (action == default) return (null, null);
             //var action = RawActions.First(x => x.RowId == ActionID);
-            if (action.TargetArea && !action.IsPlayerAction) return (action,null);
+            if (action.TargetArea || !action.IsPlayerAction) return (action,null);
             var applicableActions = Stacks.Where(entry => entry.BaseAction == action);
             MoActionStack stackToUse = null;
             foreach (var entry in applicableActions)
@@ -353,7 +354,7 @@ namespace MOAction
             {
                 if (CanUseAction(entry, ActionType))
                 {
-                    if (!entry.Action.CanTargetFriendly && !entry.Action.CanTargetHostile) return (entry.Action, clientState.LocalPlayer);
+                    if (!entry.Action.CanTargetFriendly && !entry.Action.CanTargetHostile && !entry.Action.CanTargetParty) return (entry.Action, clientState.LocalPlayer);
                     return (entry.Action, entry.Target.getPtr());
                 }
             }
@@ -387,10 +388,10 @@ namespace MOAction
                 //var a = clientState.Actors[i];
                 if (a != null && a.ObjectId == target)
                 {
-                    unsafe
-                    {
-                        if (AM->IsRecastTimerActive((ActionType)ActionType, action.RowId)) return false;
-                    }
+                    //unsafe
+                    //{
+                    //    if (AM->IsRecastTimerActive((ActionType)ActionType, action.RowId)) return false;
+                    //}
                     if (Configuration.RangeCheck)
                     {
                         if (UnorthodoxFriendly.Contains((uint)action.RowId))
@@ -399,16 +400,22 @@ namespace MOAction
                         }
                         else if ((byte)action.Range < a.YalmDistanceX) return false;
                     }
-                    if (a.ObjectKind == ObjectKind.Player) return action.CanTargetFriendly || action.CanTargetParty 
-                            || action.CanTargetSelf
-                            || action.RowId == 17055 || action.RowId == 7443;
-                    if (a.ObjectKind == ObjectKind.BattleNpc)
+                    switch (a.ObjectKind)
                     {
-                        BattleNpc b = (BattleNpc)a;
-                        if (b.BattleNpcKind != BattleNpcSubKind.Enemy) return action.CanTargetFriendly || action.CanTargetParty
+                        case ObjectKind.Player:
+                            return action.CanTargetFriendly || action.CanTargetParty 
+                                                            || action.CanTargetSelf
+                                                            || action.RowId == 17055 || action.RowId == 7443;
+                        case ObjectKind.BattleNpc:
+                        {
+                            BattleNpc b = (BattleNpc)a;
+                            if (b.BattleNpcKind != BattleNpcSubKind.Enemy) return action.CanTargetFriendly || action.CanTargetParty
                                 || action.CanTargetSelf
                                 || UnorthodoxFriendly.Contains((uint)action.RowId);
+                            break;
+                        }
                     }
+
                     return action.CanTargetHostile || UnorthodoxHostile.Contains((uint)action.RowId);
                 }
             }
