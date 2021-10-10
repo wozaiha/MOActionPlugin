@@ -226,6 +226,8 @@ namespace MOAction
         private bool HandleRequestAction(long actionMgr, uint actionType, ulong actionId, long targetId,
                        uint param_5, uint param_6, int param_7)
         {
+            if (actionId == 7419)
+                return requestActionHook.Original(actionMgr, actionType, actionId, targetId, param_5, param_6, param_7);
             var (action, target) = GetActionTarget((uint)actionId, actionType);
             void EnqueueGroundTarget()
             {
